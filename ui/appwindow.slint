@@ -1,17 +1,45 @@
-import { Button, VerticalBox } from "std-widgets.slint";
+import { Button, VerticalBox, TabWidget } from "std-widgets.slint";
+import { Plot } from "plotter.slint";
 
 export component AppWindow inherits Window {
+    width: 800px;
+    height: 600px;
     in-out property <int> counter: 42;
     callback request-increase-value();
-    VerticalBox {
-        Text {
-            text: "Counter: \{root.counter}";
+    callback call-render-plot();
+    TabWidget {
+        Tab {
+            title: "First";
+            Rectangle { background: orange; }
+            Button {
+                        text: "Increase value";
+                        clicked => {
+                            root.request-increase-value();
+                            root.call_render_plot();
+                        }
+                    }
         }
-
-        Button {
-            text: "Increase value";
-            clicked => {
-                root.request-increase-value();
+        Tab {
+            title: "Second";
+            Rectangle { background: pink; }
+            VerticalBox {
+                    Text {
+                        text: "Counter: \{root.counter}";
+                    }
+                }
+        }
+        Tab {
+            title: "OpenGL";
+            Rectangle { background: lightblue; }
+        }
+        Tab {
+            title: "Plotter";
+            Plot {
+                pitch: 0.15;
+                yaw: 0.5;
+                render_plot => {
+                    root.call_render_plot();
+                }
             }
         }
     }

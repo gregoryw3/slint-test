@@ -1,7 +1,30 @@
+// Copyright © SixtyFPS GmbH <info@slint.dev>
+// SPDX-License-Identifier: MIT
+// Mishmash of code from Slint examples
+
+use std::num::NonZeroU32;
+use std::rc::Rc;
+
 slint::include_modules!();
+
+use glow::HasContext;
+
+use plotters::prelude::*;
+use slint::SharedPixelBuffer;
+
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
+#[cfg(target_arch = "wasm32")]
+mod wasm_backend;
+
+slint::slint! {
+    export { Plot } from "ui/plotter.slint";
+}
 
 fn main() -> Result<(), slint::PlatformError> {
     let ui = AppWindow::new()?;
+    let plot = Plot::new()?;
 
     ui.on_request_increase_value({
         let ui_handle = ui.as_weak();
@@ -10,6 +33,76 @@ fn main() -> Result<(), slint::PlatformError> {
             ui.set_counter(ui.get_counter() + 1);
         }
     });
-
+    
+    ui.on_call_render_plot(move || {
+        plot.on_render_plot(render_plot);
+    });
+    
     ui.run()
+}
+
+fn pdf(x: f64, y: f64, a: f64) -> f64 {
+    const SDX: f64 = 0.1;
+    const SDY: f64 = 0.1;
+    let x: f64 = x / 10.0;
+    let y: f64 = y / 10.0;
+    a * (-x * x / 2.0 / SDX / SDX - y * y / 2.0 / SDY / SDY).exp()
+}
+
+fn render_plot(pitch: f32, yaw: f32, amplitude: f32) -> slint::Image {
+    let mut pixel_buffer = SharedPixelBuffer::new(640, 480);
+    let size = (pixel_buffer.width(), pixel_buffer.height());
+
+    let backend = BitMapBackend::with_buffer(pixel_buffer.make_mut_bytes(), size);
+
+    // Plotters requires TrueType fonts from the file system to draw axis text - we skip that for
+    // WASM for now.
+    #[cfg(target_arch = "wasm32")]
+    let backend = wasm_backend::BackendWithoutText { backend };
+
+    let root = backend.into_drawing_area();
+
+    root.fill(&WHITE).expect("error filling drawing area");
+
+    let mut chart = ChartBuilder::on(&root)
+        .build_cartesian_3d(-3.0..3.0, 0.0..6.0, -3.0..3.0)
+        .expect("error building coordinate system");
+    chart.with_projection(|mut p| {
+        p.pitch = pitch as f64;
+        p.yaw = yaw as f64;
+        p.scale = 0.7;
+        p.into_matrix() // build the projection matrix
+    });
+
+    chart.configure_axes().draw().expect("error drawing");
+
+    chart
+        .draw_series(
+            SurfaceSeries::xoz(
+                (-15..=15).map(|x| x as f64 / 5.0),
+                (-15..=15).map(|x| x as f64 / 5.0),
+                |x, y| pdf(x, y, amplitude as f64),
+            )
+                .style_func(&|&v| {
+                    (&HSLColor(240.0 / 360.0 - 240.0 / 360.0 * v / 5.0, 1.0, 0.7)).into()
+                }),
+        )
+        .expect("error drawing series");
+
+    root.present().expect("error presenting");
+    drop(chart);
+    drop(root);
+
+    slint::Image::from_rgb8(pixel_buffer)
+}
+
+#[non_exhaustive]
+pub enum GraphicsAPI<'a> {
+    NativeOpenGL {
+        get_proc_address: &'a (dyn Fn(&str) + 'a),
+    },
+    WebGL {
+        canvas_element_id: &'a str,
+        context_type: &'a str,
+    },
 }
